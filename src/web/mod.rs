@@ -180,6 +180,9 @@ impl CratesfyiHandler {
         router.get("/crate/:name/:version/source/*",
                    source::source_browser_handler,
                    "crate_name_version_source_");
+        router.get("/crate/:name/:version/*",
+                   source::source_redirector_handler,
+                   "crate_name_version_source_");
         router.get("/:crate", rustdoc::rustdoc_redirector_handler, "crate");
         router.get("/:crate/", rustdoc::rustdoc_redirector_handler, "crate_");
         router.get("/:crate/badge.svg", rustdoc::badge_handler, "crate_badge");

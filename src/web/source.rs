@@ -3,11 +3,16 @@
 
 use std::collections::BTreeMap;
 use std::cmp::Ordering;
-use super::MetaData;
+use super::{MetaData, redirect_base};
+use super::error::Nope;
 use super::page::Page;
 use super::pool::Pool;
 use super::file::File as DbFile;
+use iron::Url;
+use iron::headers::{Expires, HttpDate};
+use iron::modifiers::Redirect;
 use iron::prelude::*;
+use iron::status;
 use router::Router;
 use rustc_serialize::json::{Json, ToJson};
 use postgres::Connection;
@@ -179,6 +184,54 @@ impl FileList {
     }
 }
 
+pub fn source_redirector_handler(req: &mut Request) -> IronResult<Response> {
+    let router = extension!(req, Router);
+    let name = cexpect!(router.find("name"));
+    let version = cexpect!(router.find("version"));
+
+    // get path (req_path) for FileList::from_path and actual path for super::file::File::from_path
+    let (req_path, file_path) = {
+        let mut req_path = req.url.path();
+        // remove first elements from path which is /crate/:name/:version
+        for _ in 0..3 {
+            req_path.remove(0);
+        }
+        let file_path = format!("sources/{}/{}/{}", name, version, req_path.join("/"));
+
+        // FileList::from_path is only working for directories
+        // remove file name if it's not a directory
+        req_path.last_mut().map(|last| {
+            if !last.is_empty() {
+                *last = "";
+            }
+        });
+
+        // insert source/ back to path
+        req_path.insert(3, "source");
+
+        // remove crate name and version from req_path
+        let path = req_path.join("/").replace(&format!("{}/{}/", name, version), "");
+
+        (path, file_path)
+    };
+
+    // try to get actual file first
+    // skip if request is a directory
+    if !file_path.ends_with("/") {
+        // let url = ctry!(Url::parse(&format!("{}/crate/{}/{}/source/{}",
+        //                                     redirect_base(req),
+        //                                     name,
+        //                                     version,
+        //                                     file_path)[..]));
+        let url = ctry!(Url::parse(&req_path));
+        let mut resp = Response::with((status::Found, Redirect(url)));
+        resp.headers.set(Expires(HttpDate(time::now())));
+
+        Ok(resp)
+    } else {
+        Err(IronError::new(Nope::CrateNotFound, status::NotFound))
+    }
+}
 
 pub fn source_browser_handler(req: &mut Request) -> IronResult<Response> {
     let router = extension!(req, Router);
